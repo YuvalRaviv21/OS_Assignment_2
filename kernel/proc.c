@@ -7,8 +7,8 @@
 #include "defs.h"
 
 struct cpu cpus[NCPU];
-//TODO 1
-struct chan chan[NCHAN];
+//TOnelDO 1
+struct channel channel[NCHAN];
 
 struct proc proc[NPROC];
 
@@ -33,8 +33,8 @@ void
 chaninit(void)
 {
   int nextcid = 0;
-  struct chan *c;
-  for(c = chan; c < &chan[NPROC]; c++,nextcid++) {
+  struct channel *c;
+  for(c = channel; c < &channel[NPROC]; c++,nextcid++) {
       initlock(&c->lock, "chan");
       c->state = CHAN_UNUSED;
       c->cid = nextcid;
@@ -44,8 +44,8 @@ chaninit(void)
 //TODO 1
 int channel_create(void)
 {
-  struct chan *c;
-  for(c = chan; c < &chan[NPROC]; c++) {
+  struct channel *c;
+  for(c = channel; c < &channel[NPROC]; c++) {
     acquire(&c->lock);
     if (c->state == CHAN_UNUSED) {
       c->state = CHAN_USED;
@@ -63,7 +63,7 @@ int channel_put(int cd, int data)
 {
   if (cd < 0 || cd >= NPROC) return -1;
 
-  struct chan *c = &chan[cd];
+  struct channel *c = &channel[cd];
   acquire(&c->lock);
   if (c->state == CHAN_UNUSED) {
     release(&c->lock);
@@ -71,16 +71,16 @@ int channel_put(int cd, int data)
   }
   
   while (c->data_flag == 1) {
-    sleep(c, &c->lock);  // Sleep on the channel if it's full
+    sleep(c->writers, &c->lock);  // Sleep on the channel if it's full
     if (c->state == CHAN_UNUSED) {
-      wakeup(c);  // Wake up any sleeping processes
+      wakeup(c->writers);  // Wake up any sleeping processes
       release(&c->lock);
       return -1;
     }
   }
   c->data = data;
   c->data_flag = 1;
-  wakeup(c);  // Wake up processes waiting to take data
+  wakeup(c->readers);  // Wake up processes waiting to take data
   
   release(&c->lock);
   return 0;
@@ -90,17 +90,17 @@ int channel_take(int cd, int *data)
 {
   if (cd < 0 || cd >= NPROC) return -1;
 
-  struct chan *c = &chan[cd];
+  struct channel *c = &channel[cd];
   acquire(&c->lock);
-  if (c->data_flag == 0 && c->state == CHAN_UNUSED) {
+  if (c->state == CHAN_UNUSED) {
     release(&c->lock);
     return -1;
   }
 
   while (c->data_flag == 0) {
-    sleep(c, &c->lock);  // Sleep on the channel if it's empty
-    if (c->data_flag == 0 ||c->state == CHAN_UNUSED) {
-      wakeup(c);  // Wake up any sleeping processes
+    sleep(c->readers, &c->lock);  // Sleep on the channel if it's empty
+    if (c->state == CHAN_UNUSED) {
+      wakeup(c->readers);  // Wake up any sleeping processes
       release(&c->lock);
       return -1;
     }
@@ -110,7 +110,7 @@ int channel_take(int cd, int *data)
     return -1;
   }
   c->data_flag = 0;
-  wakeup(c);  // Wake up processes waiting to put data
+  wakeup(c->writers);  // Wake up processes waiting to put data
   
   release(&c->lock);
   return 0;
@@ -120,7 +120,7 @@ int channel_destroy(int cd)
 {
   if (cd < 0 || cd >= NPROC) return -1;
 
-  struct chan *c = &chan[cd];
+  struct channel *c = &channel[cd];
   acquire(&c->lock);
   if (c->state == CHAN_UNUSED) {
     release(&c->lock);
@@ -128,8 +128,9 @@ int channel_destroy(int cd)
   }
 
   c->state = CHAN_UNUSED;
-  // c->data_flag = 0;
-  wakeup(c);  // Wake up any sleeping processes
+  c->data_flag = 0;
+  wakeup(c->readers);  // Wake up any sleeping processes
+  wakeup(c->writers);  // Wake up any sleeping processes
   release(&c->lock);
   return 0;
 }
@@ -469,9 +470,9 @@ exit(int status)
     }
   }
 
-  //destroy all associated channels
+  //destroy all associated channelsnel
   for(int cd = 0; cd < NCHAN; cd++){
-    if(chan[cd].state == CHAN_USED && chan[cd].creator == p->pid){
+    if(channel[cd].state == CHAN_USED && channel[cd].creator == p->pid){
       if(channel_destroy(cd) < 0)
         panic("channel_destroy");
     }
@@ -708,8 +709,8 @@ kill(int pid)
     if(p->pid == pid){
       p->killed = 1;
       //destroy all associated channels
-      for(int cd = 0; cd < NCHAN; cd++){
-        if(chan[cd].state == CHAN_USED && chan[cd].creator == p->pid){
+     for(int cd = 0; cd < NCHAN; cd++){
+      if(channel[cd].state == CHAN_USED && channel[cd].creator == p->pid){
           if(channel_destroy(cd) < 0)
             panic("channel_destroy");
         }

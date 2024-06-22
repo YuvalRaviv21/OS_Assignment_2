@@ -107,13 +107,15 @@ struct proc {
   char name[16];               // Process name (debugging)
 };
 // TODO 1
-struct chan {
+struct channel {
   struct spinlock lock;
   int cid;
   int data_flag;
   enum chanstate state;                  // If non-zero, have been killed
   int data;
   int creator;
+  void *writers;
+  void *readers;
 };
 void chaninit(void);
 int channel_create(void);
