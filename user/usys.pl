@@ -36,3 +36,8 @@ entry("getpid");
 entry("sbrk");
 entry("sleep");
 entry("uptime");
+# TODO1: Add the following entries to the usys.pl script
+entry("channel_create");
+entry("channel_put");
+entry("channel_take");
+entry("channel_destroy");

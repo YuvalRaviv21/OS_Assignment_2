@@ -7,6 +7,8 @@
 #include "defs.h"
 
 struct cpu cpus[NCPU];
+//TODO 1
+struct chan chan[NCHAN];
 
 struct proc proc[NPROC];
 
@@ -25,6 +27,113 @@ extern char trampoline[]; // trampoline.S
 // memory model when using p->parent.
 // must be acquired before any p->lock.
 struct spinlock wait_lock;
+//TODO 1
+// initialize the chan table.
+void
+chaninit(void)
+{
+  int nextcid = 0;
+  struct chan *c;
+  for(c = chan; c < &chan[NPROC]; c++,nextcid++) {
+      initlock(&c->lock, "chan");
+      c->state = CHAN_UNUSED;
+      c->cid = nextcid;
+  }
+}
+
+//TODO 1
+int channel_create(void)
+{
+  struct chan *c;
+  for(c = chan; c < &chan[NPROC]; c++) {
+    acquire(&c->lock);
+    if (c->state == CHAN_UNUSED) {
+      c->state = CHAN_USED;
+      c->data_flag = 0;
+      c->creator = myproc()->pid;
+      release(&c->lock);
+      return c->cid;
+    }
+    release(&c->lock);
+  }
+  return -1;
+}
+
+int channel_put(int cd, int data)
+{
+  if (cd < 0 || cd >= NPROC) return -1;
+
+  struct chan *c = &chan[cd];
+  acquire(&c->lock);
+  if (c->state == CHAN_UNUSED) {
+    release(&c->lock);
+    return -1;
+  }
+  
+  while (c->data_flag == 1) {
+    sleep(c, &c->lock);  // Sleep on the channel if it's full
+    if (c->state == CHAN_UNUSED) {
+      wakeup(c);  // Wake up any sleeping processes
+      release(&c->lock);
+      return -1;
+    }
+  }
+  c->data = data;
+  c->data_flag = 1;
+  wakeup(c);  // Wake up processes waiting to take data
+  
+  release(&c->lock);
+  return 0;
+}
+
+int channel_take(int cd, int *data)
+{
+  if (cd < 0 || cd >= NPROC) return -1;
+
+  struct chan *c = &chan[cd];
+  acquire(&c->lock);
+  if (c->data_flag == 0 && c->state == CHAN_UNUSED) {
+    release(&c->lock);
+    return -1;
+  }
+
+  while (c->data_flag == 0) {
+    sleep(c, &c->lock);  // Sleep on the channel if it's empty
+    if (c->data_flag == 0 ||c->state == CHAN_UNUSED) {
+      wakeup(c);  // Wake up any sleeping processes
+      release(&c->lock);
+      return -1;
+    }
+  }
+  if (copyout(myproc()->pagetable, (uint64)data, (char*)&c->data, sizeof(int)) < 0) {
+    release(&c->lock);
+    return -1;
+  }
+  c->data_flag = 0;
+  wakeup(c);  // Wake up processes waiting to put data
+  
+  release(&c->lock);
+  return 0;
+}
+
+int channel_destroy(int cd)
+{
+  if (cd < 0 || cd >= NPROC) return -1;
+
+  struct chan *c = &chan[cd];
+  acquire(&c->lock);
+  if (c->state == CHAN_UNUSED) {
+    release(&c->lock);
+    return -1;
+  }
+
+  c->state = CHAN_UNUSED;
+  // c->data_flag = 0;
+  wakeup(c);  // Wake up any sleeping processes
+  release(&c->lock);
+  return 0;
+}
+
 
 // Allocate a page for each process's kernel stack.
 // Map it high in memory, followed by an invalid
@@ -360,6 +469,13 @@ exit(int status)
     }
   }
 
+  //destroy all associated channels
+  for(int cd = 0; cd < NCHAN; cd++){
+    if(chan[cd].state == CHAN_USED && chan[cd].creator == p->pid){
+      if(channel_destroy(cd) < 0)
+        panic("channel_destroy");
+    }
+  }
   begin_op();
   iput(p->cwd);
   end_op();
@@ -591,6 +707,13 @@ kill(int pid)
     acquire(&p->lock);
     if(p->pid == pid){
       p->killed = 1;
+      //destroy all associated channels
+      for(int cd = 0; cd < NCHAN; cd++){
+        if(chan[cd].state == CHAN_USED && chan[cd].creator == p->pid){
+          if(channel_destroy(cd) < 0)
+            panic("channel_destroy");
+        }
+      }
       if(p->state == SLEEPING){
         // Wake process from sleep().
         p->state = RUNNABLE;

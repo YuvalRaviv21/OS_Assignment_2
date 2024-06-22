@@ -89,3 +89,34 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+uint64 sys_channel_create(void)
+{
+  return channel_create();
+}
+uint64 sys_channel_put(void)
+{
+  int ch, data;
+  argint(0, &ch);
+  argint(1, &data);
+  // printf("sys_channel_put: ch=%d, data=%d\n", ch, data);
+  return channel_put(ch, data);
+}
+uint64 sys_channel_take(void)
+{
+  int cd;
+  // int* data;
+  uint64 add;
+  argint(0, &cd);
+  argaddr(1,&add);
+  int * data = (int*)add;
+  int result = channel_take(cd, data);
+  return result;
+  // return 0;
+}
+uint64 sys_channel_destroy(void)
+{
+  int ch;
+  argint(0, &ch);
+  return channel_destroy(ch);
+}
