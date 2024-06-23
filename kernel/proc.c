@@ -28,24 +28,10 @@ extern char trampoline[]; // trampoline.S
 // must be acquired before any p->lock.
 struct spinlock wait_lock;
 //TODO 1
-// initialize the chan table.
-void
-chaninit(void)
-{
-  int nextcid = 0;
-  struct channel *c;
-  for(c = channel; c < &channel[NPROC]; c++,nextcid++) {
-      initlock(&c->lock, "chan");
-      c->state = CHAN_UNUSED;
-      c->cid = nextcid;
-  }
-}
-
-//TODO 1
 int channel_create(void)
 {
   struct channel *c;
-  for(c = channel; c < &channel[NPROC]; c++) {
+  for(c = channel; c < &channel[NCHAN]; c++) {
     acquire(&c->lock);
     if (c->state == CHAN_UNUSED) {
       c->state = CHAN_USED;
@@ -53,6 +39,7 @@ int channel_create(void)
       c->creator = myproc()->pid;
       release(&c->lock);
       return c->cid;
+      // return 34;
     }
     release(&c->lock);
   }
@@ -61,7 +48,7 @@ int channel_create(void)
 
 int channel_put(int cd, int data)
 {
-  if (cd < 0 || cd >= NPROC) return -1;
+  if (cd < 0 || cd >= NCHAN) return -1;
 
   struct channel *c = &channel[cd];
   acquire(&c->lock);
@@ -88,7 +75,7 @@ int channel_put(int cd, int data)
 
 int channel_take(int cd, int *data)
 {
-  if (cd < 0 || cd >= NPROC) return -1;
+  if (cd < 0 || cd >= NCHAN) return -1;
 
   struct channel *c = &channel[cd];
   acquire(&c->lock);
@@ -118,7 +105,7 @@ int channel_take(int cd, int *data)
 
 int channel_destroy(int cd)
 {
-  if (cd < 0 || cd >= NPROC) return -1;
+  if (cd < 0 || cd >= NCHAN) return -1;
 
   struct channel *c = &channel[cd];
   acquire(&c->lock);
@@ -165,6 +152,20 @@ procinit(void)
       initlock(&p->lock, "proc");
       p->state = UNUSED;
       p->kstack = KSTACK((int) (p - proc));
+  }
+}
+
+//TODO 1
+// initialize the chan table.
+void
+chaninit(void)
+{
+  int nextcid = 0;
+  struct channel *c;
+  for(c = channel; c < &channel[NCHAN]; c++,nextcid++) {
+      initlock(&c->lock, "chan");
+      c->state = CHAN_UNUSED;
+      c->cid = nextcid;
   }
 }
 
